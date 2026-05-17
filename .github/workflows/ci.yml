@@ -1,3 +1,4 @@
+# CI for auditlog-kt (Kotlin 2.1+ version)
 name: CI
 
 on:
@@ -34,6 +35,12 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
+
+      - name: Show versions
+        run: |
+          java -version
+          mvn --version
+          echo "Kotlin version from pom: $(grep -oP '<kotlin.version>\K[^<]+' pom.xml || echo 'n/a')"
 
       - name: Build & Unit Tests
         run: mvn clean test -Djacoco.skip=true -B

@@ -1,3 +1,4 @@
+# Release workflow for auditlog-kt (Kotlin)
 name: Release
 
 on:
@@ -18,6 +19,12 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
+
+      - name: Show versions
+        run: |
+          java -version
+          mvn --version
+          echo "Kotlin version: $(grep -oP '<kotlin.version>\K[^<]+' pom.xml || echo 'n/a')"
 
       - name: Build & Test
         run: mvn test -Djacoco.skip=true -B
