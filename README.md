@@ -1,0 +1,233 @@
+# Audit Log Core
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Kotlin-2.1-%237F52FF" alt="Kotlin 2.1"/>
+  <img src="https://img.shields.io/badge/Java-21-%23ED8B00" alt="Java 21"/>
+  <img src="https://img.shields.io/badge/Maven-3.9+-%23C71A36" alt="Maven 3.9+"/>
+  <img src="https://img.shields.io/badge/PostgreSQL-14+-%234169E1" alt="PostgreSQL 14+"/>
+  <img src="https://img.shields.io/github/last-commit/maatini/auditlog" alt="Last Commit"/>
+  <img src="https://img.shields.io/badge/virtual_threads-yes-%2344CC11" alt="Virtual Threads"/>
+  <img src="https://img.shields.io/badge/license-MIT-%23blue" alt="MIT License"/>
+</p>
+
+<img src="auditlog.svg" alt="Audit Log Overview" width="900"/>
+
+Leichtgewichtige Kotlin-Bibliothek für PostgreSQL-basierte Audit-Logs. Volle Java-Interoperabilität.
+
+**Minimale Abhängigkeiten:** PostgreSQL-Treiber, Jackson, SLF4J. Kein HikariCP-Zwang.
+
+## Maven-Dependency
+
+```xml
+<dependency>
+    <groupId>io.audit</groupId>
+    <artifactId>audit-log-core</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+## Voraussetzungen
+
+- Kotlin 2.1+ / Java 21+
+- PostgreSQL 14+ (mit JSONB-Unterstützung)
+- Tabelle via Flyway-Migration anlegen (siehe unten)
+
+## Datenbank-Migration
+
+Das SQL-Migration-Script liegt unter `db/migration/V1__create_audit_log_table.sql`.
+Bei manuellem Ausführen:
+
+```bash
+psql -U <user> -d <database> -f V1__create_audit_log_table.sql
+```
+
+## Nutzung
+
+### Mit vorhandenem Connection-Pool (empfohlen)
+
+```java
+// Einen vorhandenen DataSource nutzen (z. B. aus Application-Server / DI-Framework)
+PostgresAuditLogger logger = new PostgresAuditLogger(dataSource);
+
+AuditEntry entry = AuditEntry.builder()
+    .actorId("user-123")
+    .action("UPDATE")
+    .entityType("Order")
+    .entityId("order-456")
+    .changes(Map.of("status", Map.of("old", "PENDING", "new", "SHIPPED")))
+    .metadata(Map.of("source_ip", "192.168.1.1"))
+    .build();
+
+logger.log(entry);
+
+logger.close();
+```
+
+### Mit eigener URL (braucht HikariCP auf dem Classpath)
+
+```java
+PostgresAuditLogger logger = PostgresAuditLoggers.create(
+    "jdbc:postgresql://localhost:5432/mydb",
+    "user",
+    "password"
+);
+```
+
+Dafür HikariCP als Dependency ergänzen:
+
+```xml
+<dependency>
+    <groupId>com.zaxxer</groupId>
+    <artifactId>HikariCP</artifactId>
+    <version>5.1.0</version>
+</dependency>
+```
+
+### Mit Builder (eigener HikariCP-Pool)
+
+```java
+PostgresAuditLogger logger = PostgresAuditLoggers.builder()
+    .jdbcUrl("jdbc:postgresql://localhost:5432/mydb")
+    .username("user")
+    .password("pass")
+    .maximumPoolSize(10)
+    .minimumIdle(2)
+    .poolName("my-audit-pool")
+    .build();
+```
+
+### Backpressure
+
+Die Bibliothek unterstützt zwei Strategien, wenn die Auslastung die konfigurierte Grenze erreicht:
+
+```java
+// Blockiert den aufrufenden Thread, bis ein Permit frei wird (Default)
+PostgresAuditLogger logger = PostgresAuditLogger.builder()
+    .dataSource(dataSource).maxConcurrency(5).build();
+
+// Schlägt sofort fehl – gibt eine failed CompletableFuture zurück
+PostgresAuditLogger logger = PostgresAuditLogger.builder()
+    .dataSource(dataSource).maxConcurrency(5)
+    .backpressurePolicy(BackpressurePolicy.FAST_FAIL).build();
+```
+
+| Policy | Verhalten |
+|---|---|
+| `BLOCK` | Thread wartet (blockierend) auf freies Permit |
+| `FAST_FAIL` | `CompletableFuture.failedFuture(AuditLoggingException)` |
+
+### Error-Callback für asynchrone Fehler
+
+Bei `FAST_FAIL` oder SQL-Fehlern kann ein Callback benachrichtigt werden:
+
+```java
+PostgresAuditLogger logger = PostgresAuditLogger.builder()
+    .dataSource(dataSource).maxConcurrency(5)
+    .backpressurePolicy(BackpressurePolicy.FAST_FAIL)
+    .errorCallback(error -> monitoringService.alert("Audit-Log fehlgeschlagen: " + error.getMessage()))
+    .build();
+```
+
+### Eigener Executor
+
+Für benutzerdefinierte Thread-Pools (z. B. begrenzte Parallelität):
+
+```java
+var executor = Executors.newFixedThreadPool(10);
+var logger = PostgresAuditLogger.builder()
+    .dataSource(dataSource).executor(executor).build();
+// Der Executor wird von close() NICHT shutdown – liegt in der Verantwortung des Aufrufers
+```
+
+### Executor mit Backpressure
+
+```java
+var logger = PostgresAuditLogger.builder()
+    .dataSource(dataSource).executor(executor)
+    .maxConcurrency(10).backpressurePolicy(PostgresAuditLogger.BackpressurePolicy.FAST_FAIL)
+    .errorCallback(error -> log.warn("Audit-Log fehlgeschlagen", error))
+    .build();
+```
+
+## Abhängigkeiten im Überblick
+
+| Dependency | Scope | Erforderlich für |
+|---|---|---|
+| `postgresql` | compile | JDBC-Treiber |
+| `jackson-databind` | compile | JSON-Serialisierung |
+| `slf4j-api` | compile | Logging |
+| `HikariCP` | optional | Nur `PostgresAuditLoggers.create()` |
+
+Die Bibliothek kommt ohne HikariCP aus, wenn du einen eigenen `DataSource` übergibst.
+
+## Schema
+
+| Spalte      | Typ               | Beschreibung                          |
+|-------------|-------------------|---------------------------------------|
+| id          | UUID              | Primary Key                           |
+| timestamp   | TIMESTAMPTZ       | Zeitstempel mit Zeitzone              |
+| actor_id    | VARCHAR(255)      | Wer hat die Aktion ausgeführt         |
+| action      | VARCHAR(255)      | Aktion (z. B. CREATE, UPDATE, DELETE) |
+| entity_type | VARCHAR(255)      | Entitätstyp (z. B. Order, User)      |
+| entity_id   | VARCHAR(255)      | ID der Entität                        |
+| changes     | JSONB             | Vorher/Nachher-Vergleich              |
+| metadata    | JSONB             | Zusätzliche Metadaten                 |
+| chain_hash  | BYTEA             | SHA-256 Hash-Chain (Manipulationsschutz) |
+
+## Architektur
+
+- **Sprache**: Kotlin 2.1 mit JVM Target 21 – voll kompatibel zu Java
+- **Asynchrone Persistierung**: via `CompletableFuture.runAsync()` auf Virtual Threads (Java 21+)
+- **Backpressure**: Semaphore-gesteuerte Drosselung (BLOCK / FAST_FAIL) gegen Pool Starvation
+- **Connection-Pooling**: wahlweise HikariCP (über Factory) oder eigener Pool
+- **JSON-Serialisierung**: Jackson (via `jackson-databind`, ISO-8601-Datumsformate)
+- **Fehlerbehandlung**: asynchrone Fehler via `AuditLoggingException` in CompletableFuture + optionalem Callback
+- **Minimale Pflichtabhängigkeiten**: PostgreSQL-Treiber, Jackson, SLF4J
+- **Kryptografische Hash-Chain**: SHA-256-Verkettung über alle Einträge (Vorgänger-Hash
+  + aktuelle Felder). Manipulation an einem Eintrag bricht die Kette – nachweisbar
+  durch Neuberechnung. Erster Eintrag nutzt Zero-Hash als Vorgänger.
+- **Hinweis zu asynchroner Verarbeitung**: `log()` ist Fire-and-forget auf Virtual Threads
+  mit eigener DB-Connection. Das bedeutet: (1) ein JVM-Crash kann unpersistierte Einträge
+  verlieren – für garantierte Zustellung `.join()` verwenden; (2) Audit-Einträge laufen
+  außerhalb der Business-Transaktion – bei Rollback bleibt der Audit-Eintrag bestehen;
+  (3) eine separate DataSource für Audit-Logs verhindert Connection-Pool-Konflikte.
+
+## Diagramme
+
+| Diagramm | Beschreibung |
+|---|---|
+| [Async Log Flow](docs/diagrams/async-log-flow.mmd) | Sequenz: `log()` → Semaphore → JSON → Virtual Thread → DB |
+| [Class Overview](docs/diagrams/class-overview.mmd) | Core-Typen: `AuditLogger`, `AuditEntry`, `PostgresAuditLoggers` |
+| [Deployment Variants](docs/diagrams/deployment-variants.mmd) | Drei Architekturen: DataSource / HikariCP / Devbox |
+| [Backpressure](docs/diagrams/backpressure-flow.mmd) | Zustandsautomat: BLOCK vs. FAST_FAIL |
+
+```mermaid
+sequenceDiagram
+    participant C as Caller Thread
+    participant L as PostgresAuditLogger
+    participant V as Virtual Thread
+    participant D as PostgreSQL
+    C->>L: log(entry)
+    L->>L: Semaphore + JSON serialize (sync)
+    L->>V: runAsync(insert)
+    L-->>C: CompletableFuture
+    V->>D: INSERT INTO audit_log
+    V->>L: release permit
+```
+
+## Flyway als optionale Dependency
+
+Wenn Flyway zur Laufzeit genutzt werden soll:
+
+```xml
+<dependency>
+    <groupId>org.flywaydb</groupId>
+    <artifactId>flyway-core</artifactId>
+    <version>10.18.0</version>
+</dependency>
+<dependency>
+    <groupId>org.flywaydb</groupId>
+    <artifactId>flyway-database-postgresql</artifactId>
+    <version>10.18.0</version>
+</dependency>
+```
