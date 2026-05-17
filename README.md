@@ -1,4 +1,4 @@
-# Audit Log Core
+# Audit Log Core (Kotlin)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Kotlin-2.1-%237F52FF" alt="Kotlin 2.1"/>
@@ -10,9 +10,11 @@
   <img src="https://img.shields.io/badge/license-MIT-%23blue" alt="MIT License"/>
 </p>
 
+> **Offizielle Kotlin-Version** – Nachfolger des Java-Repos [auditlog](https://github.com/maatini/auditlog).
+
 <img src="auditlog.svg" alt="Audit Log Overview" width="900"/>
 
-Leichtgewichtige Kotlin-Bibliothek für PostgreSQL-basierte Audit-Logs. Volle Java-Interoperabilität.
+Leichtgewichtige **Kotlin 2.1+** Bibliothek für PostgreSQL-basierte Audit-Logs mit voller Java-Interoperabilität.
 
 **Minimale Abhängigkeiten:** PostgreSQL-Treiber, Jackson, SLF4J. Kein HikariCP-Zwang.
 
@@ -22,7 +24,7 @@ Leichtgewichtige Kotlin-Bibliothek für PostgreSQL-basierte Audit-Logs. Volle Ja
 <dependency>
     <groupId>io.audit</groupId>
     <artifactId>audit-log-core</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
 </dependency>
 ```
 
