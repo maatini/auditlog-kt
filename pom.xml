@@ -145,7 +145,7 @@
         <repository>
             <id>github</id>
             <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/maatini/auditlog</url>
+            <url>https://maven.pkg.github.com/maatini/auditlog-kt</url>
         </repository>
     </distributionManagement>
 
