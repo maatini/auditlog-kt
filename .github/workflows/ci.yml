@@ -87,6 +87,7 @@ jobs:
   security-scan:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -98,8 +99,26 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      - name: Cache OWASP Dependency-Check data
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: ${{ runner.os }}-owasp-dependency-check-${{ hashFiles('pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-owasp-dependency-check-
+
       - name: OWASP Dependency Check
-        run: mvn dependency-check:check -B
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -z "${NVD_API_KEY}" ]; then
+            # Without a key the NVD REST API is rate-limited and can stall for hours.
+            # The bulk feed avoids that paging loop; a present key still uses the API.
+            args+=("-DnvdDatafeedUrl=https://dependency-check.github.io/DependencyCheck_Builder/nvd_cache/nvdcve-{0}.json.gz")
+          fi
+          mvn dependency-check:check -B "${args[@]}"
 
       - name: Upload OWASP Report
         uses: actions/upload-artifact@v4
