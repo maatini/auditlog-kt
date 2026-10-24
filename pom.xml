@@ -21,7 +21,7 @@
         <postgresql.version>42.7.14</postgresql.version>
         <jackson.version>2.22.4</jackson.version>
         <flyway.version>10.18.0</flyway.version>
-        <junit.version>5.11.4</junit.version>
+        <junit.version>6.0.3</junit.version>
         <mockito.version>5.23.0</mockito.version>
         <testcontainers.version>1.20.4</testcontainers.version>
         <jacoco.version>0.8.14</jacoco.version>
